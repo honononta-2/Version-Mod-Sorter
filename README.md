@@ -48,7 +48,7 @@ mods
       └─ ModF.jar
 ```
 
-![Example of mods folder](images/mods-folder.png)
+![Example of mods folder](images/mods-folder.en.png)
 
 Nothing happens while the folders are empty — the game starts normally.
 
