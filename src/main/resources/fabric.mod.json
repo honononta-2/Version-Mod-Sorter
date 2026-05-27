@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "version-mod-sorter",
+  "version": "${version}",
+  "name": "Version Mod Sorter",
+  "description": "Loads mods from version-specific folders (mods/<loader>/<version>/) for each Minecraft version. Supports Fabric, Forge, and NeoForge.",
+  "license": "MIT",
+  "icon": "assets/version-mod-sorter/icon.png",
+  "authors": [
+    "honononta-2"
+  ],
+  "contact": {
+    "homepage": "https://github.com/honononta-2/Version-Mod-Sorter/releases",
+    "sources": "https://github.com/honononta-2/Version-Mod-Sorter",
+    "issues": "https://github.com/honononta-2/Version-Mod-Sorter/issues"
+  },
+  "environment": "*",
+  "entrypoints": {},
+  "depends": {
+    "fabricloader": ">=0.12.0",
+    "minecraft": "*"
+  },
+  "languageAdapters": {
+    "version-mod-sorter:earlyInit": "vms.VersionModSorter"
+  }
+}

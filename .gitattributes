@@ -1,0 +1,3 @@
+# Unix系でのビルドのため gradlew は LF 固定、bat は Windows 用で CRLF
+gradlew text eol=lf
+gradlew.bat text eol=crlf

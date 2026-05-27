@@ -1,0 +1,109 @@
+import org.gradle.api.attributes.java.TargetJvmVersion
+
+// MCクラス非参照のためLoom・マッピング不要
+plugins {
+    id 'java'
+}
+
+version = project.mod_version
+group = project.maven_group
+
+repositories {
+    mavenCentral()
+    maven {
+        name = 'Fabric'
+        url = 'https://maven.fabricmc.net/'
+    }
+    maven {
+        name = 'MinecraftForge'
+        url = 'https://maven.minecraftforge.net/'
+    }
+    maven {
+        name = 'NeoForged'
+        url = 'https://maven.neoforged.net/releases'
+    }
+}
+
+sourceSets {
+    forge {
+        java.srcDirs = ['src/forge/java']
+    }
+    neoforge {
+        java.srcDirs = ['src/neoforge/java']
+    }
+}
+
+// 依存解決のバリアント照合に合わせ、対象Javaバージョンを指定する
+configurations.named('forgeCompileClasspath') {
+    attributes {
+        attribute(TargetJvmVersion.TARGET_JVM_VERSION_ATTRIBUTE, 17)
+    }
+}
+configurations.named('neoforgeCompileClasspath') {
+    attributes {
+        attribute(TargetJvmVersion.TARGET_JVM_VERSION_ATTRIBUTE, 25)
+    }
+}
+
+dependencies {
+    compileOnly "net.fabricmc:fabric-loader:${project.loader_version}"
+    // 実行時クラスはリフレクション参照のため推移依存は引かない
+    forgeCompileOnly("net.minecraftforge:forgespi:${project.forgespi_version}") {
+        transitive = false
+    }
+    // 探索に必要な型はすべてloaderに含まれるため推移依存は引かない
+    neoforgeCompileOnly("net.neoforged.fancymodloader:loader:${project.fancymodloader_version}") {
+        transitive = false
+    }
+}
+
+def targetJavaVersion = 8
+
+java {
+    def javaVersion = JavaVersion.toVersion(targetJavaVersion)
+    sourceCompatibility = javaVersion
+    targetCompatibility = javaVersion
+    if (JavaVersion.current() < javaVersion) {
+        toolchain.languageVersion = JavaLanguageVersion.of(targetJavaVersion)
+    }
+}
+
+base {
+    archivesName = project.archives_base_name
+}
+
+tasks.withType(JavaCompile).configureEach {
+    it.options.encoding = 'UTF-8'
+    if (targetJavaVersion >= 10 || JavaVersion.current().isJava10Compatible()) {
+        it.options.release = targetJavaVersion
+    }
+}
+
+// forgespiはJava 17バイトコード
+tasks.named('compileForgeJava') {
+    options.release = 17
+}
+
+// neoforgespiはJava 25バイトコードで、ビルド用JDK17では読めない
+tasks.named('compileNeoforgeJava') {
+    options.release = 21
+    options.fork = true
+    options.forkOptions.javaHome = file(System.getenv("JDK25_HOME") ?: "${rootDir}/toolchains/jdk25")
+}
+
+processResources {
+    inputs.property 'version', project.version
+    filteringCharset 'UTF-8'
+
+    filesMatching('fabric.mod.json') {
+        expand 'version': project.version
+    }
+}
+
+jar {
+    from sourceSets.forge.output
+    from sourceSets.neoforge.output
+    from('LICENSE') {
+        rename { "${it}_${base.archivesName.get()}" }
+    }
+}
