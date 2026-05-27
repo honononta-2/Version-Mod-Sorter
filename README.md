@@ -1,4 +1,82 @@
+[日本語版はこちら / Japanese](#japanese)
+
+[![GitHub Release](https://img.shields.io/github/v/release/honononta-2/Version-Mod-Sorter)](../../releases)
+[![License: MIT](https://img.shields.io/github/license/honononta-2/Version-Mod-Sorter)](LICENSE)
+![Environment: both](https://img.shields.io/badge/environment-both-4caf50)
+![Fabric](https://img.shields.io/badge/Fabric-supported-brightgreen)
+![Forge](https://img.shields.io/badge/Forge-supported-brightgreen)
+![NeoForge](https://img.shields.io/badge/NeoForge-supported-brightgreen)
+
 # Version Mod Sorter
+
+A Minecraft mod that loads mods from version-specific folders. Supports Fabric, Forge, and NeoForge.
+
+Place mods in `mods/<loader>/<version>/` folders (e.g. `mods/fabric/1.20.4/`), and only the mods matching the current loader and Minecraft version will be loaded. This lets you keep mods organized even when switching between multiple versions and loaders.
+
+## Requirements
+
+- Fabric Loader 0.12.0+ / Forge 41.1.0 (Minecraft 1.19)+ / NeoForge 20.5 (Minecraft 1.20.5)+
+- A single jar works across all supported loaders and Minecraft versions — no need for separate builds.
+
+## Installation
+
+Download the latest `version-mod-sorter-x.x.x.jar` from [Releases](../../releases) and place it in your `mods` folder. The same jar works with Fabric, Forge, and NeoForge.
+
+## Usage
+
+1. Launch the game once. A folder `mods/<loader>/<version>/` (e.g. `mods/fabric/1.20.4/`) will be created automatically. Loader names are `fabric`, `forge`, and `neoforge`.
+2. Place the `.jar` files you want to use for that version into the folder.
+3. Launch the game again. The mods in the folder will be loaded.
+
+The folder structure looks like this:
+
+```
+mods
+├─ fabric
+│  └─ 26.1.2
+│     ├─ ModA.jar
+│     └─ ModB.jar
+├─ forge
+│  ├─ 26.1
+│  │  └─ ModC.jar
+│  └─ 1.21.4
+│     └─ ModD.jar
+└─ neoforge
+   ├─ 1.21.4
+   │  └─ ModE.jar
+   └─ 1.20.6
+      └─ ModF.jar
+```
+
+![Example of mods folder](images/mods-folder.png)
+
+Nothing happens while the folders are empty — the game starts normally.
+
+## How It Works
+
+At launch, the mod detects the current loader and Minecraft version, then loads mods from `mods/<loader>/<version>/`. It uses each loader's official mechanism (Fabric's `fabric.addMods`, Forge/NeoForge's mod discovery API) and does not modify any Minecraft classes or bytecode. This is why a single jar works across all loaders and versions.
+
+## Tested Environments
+
+- Windows 11 — Fabric Loader 0.19.2 / Forge 44.1.23 (MC 1.19.3) / Forge 54.1.16 (MC 1.21.4) / Forge 62.0.9 (MC 26.1) / Forge 64.0.8 (MC 26.1.2) / NeoForge 21.4.157 / NeoForge 26.1.2.66-beta
+- macOS (Apple M2) — Fabric Loader 0.19.2 (MC 1.20.4)
+
+## Notes
+
+- The version folder name must exactly match the Minecraft version reported by the loader.
+- Mods in `mods/<loader>/<version>/` are loaded in addition to mods in the regular `mods/` folder.
+- On Fabric, if there are mods to load, the process is relaunched once at startup. Forge and NeoForge do not require a relaunch.
+- This mod relies on internal loader implementations, so a major loader update may cause it to stop working. In that case, only this mod is affected — it does not modify Minecraft or the loader itself, so the game and other mods will be fine.
+
+## Support
+
+Please report bugs and ask questions via [Issues](../../issues).
+
+---
+
+<a id="japanese"></a>
+
+# Version Mod Sorter（日本語）
 
 Minecraftのバージョンごとに、対応するMODだけを読み込ませるMOD。Fabric・Forge・NeoForgeに対応しています。
 
