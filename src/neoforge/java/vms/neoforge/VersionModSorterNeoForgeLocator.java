@@ -6,6 +6,8 @@ import net.neoforged.neoforgespi.locating.IModFileCandidateLocator;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * {@code mods/neoforge/<MCバージョン>/} を NeoForge公式の {@link IModFileCandidateLocator} として探索に追加する
@@ -31,8 +33,12 @@ public class VersionModSorterNeoForgeLocator implements IModFileCandidateLocator
             // 新バージョンでもMODの置き場が用意されるよう、無ければ作る
             Files.createDirectories(versionDir);
 
-            IModFileCandidateLocator.forFolder(versionDir.toFile(), "version-mod-sorter")
-                    .findCandidates(context, pipeline);
+            try (Stream<Path> paths = Files.walk(versionDir)) {
+                for (Path dir : paths.filter(Files::isDirectory).collect(Collectors.toList())) {
+                    IModFileCandidateLocator.forFolder(dir.toFile(), locatorName(versionDir, dir))
+                            .findCandidates(context, pipeline);
+                }
+            }
         } catch (Throwable t) {
             // 何もしない
         }
@@ -41,6 +47,13 @@ public class VersionModSorterNeoForgeLocator implements IModFileCandidateLocator
     @Override
     public String toString() {
         return "version-mod-sorter";
+    }
+
+    private static String locatorName(Path root, Path dir) {
+        if (dir.equals(root)) {
+            return "version-mod-sorter";
+        }
+        return "version-mod-sorter/" + root.relativize(dir).toString().replace('\\', '/');
     }
 
     private static String mcVersion(ILaunchContext context) {

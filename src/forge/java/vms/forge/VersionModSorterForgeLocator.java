@@ -5,14 +5,18 @@ import net.minecraftforge.forgespi.locating.IModFile;
 import net.minecraftforge.forgespi.locating.IModLocator;
 import net.minecraftforge.forgespi.locating.IModLocator.ModFileOrException;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * {@code mods/forge/<MCバージョン>/} を Forge公式の {@link IModLocator} として探索に追加する
@@ -41,7 +45,12 @@ public class VersionModSorterForgeLocator implements IModLocator {
             if (factory == null) {
                 return Collections.emptyList();
             }
-            return factory.build(versionDir, name()).scanMods();
+
+            List<ModFileOrException> result = new ArrayList<>();
+            for (Path dir : modDirectories(versionDir)) {
+                result.addAll(factory.build(dir, locatorName(versionDir, dir)).scanMods());
+            }
+            return result;
         } catch (Throwable t) {
             return Collections.emptyList();
         }
@@ -64,6 +73,19 @@ public class VersionModSorterForgeLocator implements IModLocator {
     @Override
     public boolean isValid(IModFile modFile) {
         return false;
+    }
+
+    private static List<Path> modDirectories(Path root) throws IOException {
+        try (Stream<Path> paths = Files.walk(root)) {
+            return paths.filter(Files::isDirectory).collect(Collectors.toList());
+        }
+    }
+
+    private String locatorName(Path root, Path dir) {
+        if (dir.equals(root)) {
+            return name();
+        }
+        return name() + "/" + root.relativize(dir).toString().replace('\\', '/');
     }
 
     private static String mcVersion() throws Exception {
