@@ -31,26 +31,51 @@ Download the latest `version-mod-sorter-x.x.x.jar` from [Releases](../../release
 The folder structure looks like this:
 
 ```
-mods
-├─ fabric
-│  └─ 26.1.2
-│     ├─ ModA.jar
-│     └─ ModB.jar
-├─ forge
-│  ├─ 26.1
-│  │  └─ ModC.jar
-│  └─ 1.21.4
-│     └─ ModD.jar
-└─ neoforge
-   ├─ 1.21.4
-   │  └─ ModE.jar
-   └─ 1.20.6
-      └─ ModF.jar
+📁 mods
+├─ version-mod-sorter-x.x.x.jar
+│  (VMS itself)
+├─ ModA.jar
+│  (mods/ root: loaded on every loader and version)
+├─ 📁 fabric
+│  ├─ ModB.jar
+│  │  (Fabric: loaded on every version)
+│  └─ 📁 26.1.2
+│     ├─ ModC.jar
+│     │  (Fabric MC26.1.2 only)
+│     └─ 📁 folder
+│        └─ ModD.jar
+│           (subfolders can be used for organization)
+├─ 📁 forge
+│  ├─ ModE.jar
+│  │  (Forge: loaded on every version)
+│  └─ 📁 1.21.4
+│     └─ ModF.jar
+│        (Forge MC1.21.4 only)
+└─ 📁 neoforge
+   ├─ ModG.jar
+   │  (NeoForge: loaded on every version)
+   └─ 📁 1.20.6
+      └─ ModH.jar
+         (NeoForge MC1.20.6 only)
 ```
 
 ![Example of mods folder](images/mods-folder.en.png)
 
 Nothing happens while the folders are empty — the game starts normally.
+
+## Usage Examples
+
+- When switching between versions or loaders (e.g. for multiplayer), mods are managed per-loader and per-version in separate folders — no need to swap mod files.
+- Subdirectories are also supported. You can organize mods by category within a version folder.
+
+```
+mods/fabric/1.20.4/
+├─ performance/
+│  ├─ sodium.jar
+│  └─ lithium.jar
+└─ utility/
+   └─ minimap.jar
+```
 
 ## How It Works
 
@@ -100,26 +125,51 @@ Minecraftのバージョンごとに、対応するMODだけを読み込ませ�
 フォルダ構成は次のようになります。
 
 ```
-mods
-├─ fabric
-│  └─ 26.1.2
-│     ├─ ModA.jar
-│     └─ ModB.jar
-├─ forge
-│  ├─ 26.1
-│  │  └─ ModC.jar
-│  └─ 1.21.4
-│     └─ ModD.jar
-└─ neoforge
-   ├─ 1.21.4
-   │  └─ ModE.jar
-   └─ 1.20.6
-      └─ ModF.jar
+📁 mods
+├─ version-mod-sorter-x.x.x.jar
+│  (VMS本体)
+├─ ModA.jar
+│  (mods/ 直下: 全ローダー・全バージョンで読み込み)
+├─ 📁 fabric
+│  ├─ ModB.jar
+│  │  (Fabric: 全バージョンで読み込み)
+│  └─ 📁 26.1.2
+│     ├─ ModC.jar
+│     │  (Fabric MC26.1.2 専用)
+│     └─ 📁 folder
+│        └─ ModD.jar
+│           (サブフォルダで整理可能)
+├─ 📁 forge
+│  ├─ ModE.jar
+│  │  (Forge: 全バージョンで読み込み)
+│  └─ 📁 1.21.4
+│     └─ ModF.jar
+│        (Forge MC1.21.4 専用)
+└─ 📁 neoforge
+   ├─ ModG.jar
+   │  (NeoForge: 全バージョンで読み込み)
+   └─ 📁 1.20.6
+      └─ ModH.jar
+         (NeoForge MC1.20.6 専用)
 ```
 
 ![mods フォルダの例](images/mods-folder.png)
 
 フォルダが空の間は何も起きず、通常どおり起動します。
+
+## 使用例
+
+- マルチプレイなどでバージョンやローダーを切り替えても、MODの入れ替えは不要です。ローダーごと・バージョンごとにフォルダで管理できます。
+- サブディレクトリにも対応しています。MODを種類ごとにフォルダ分けして整理できます。
+
+```
+mods/fabric/1.20.4/
+├─ performance/
+│  ├─ sodium.jar
+│  └─ lithium.jar
+└─ utility/
+   └─ minimap.jar
+```
 
 ## 仕組み
 

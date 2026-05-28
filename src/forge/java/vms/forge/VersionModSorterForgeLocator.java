@@ -19,7 +19,12 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
- * {@code mods/forge/<MCバージョン>/} を Forge公式の {@link IModLocator} として探索に追加する
+ * {@code mods/forge/<MCバージョン>/} と {@code mods/forge/} 直下を Forge公式の {@link IModLocator}
+ * として探索に追加する
+ *
+ * <p>{@code mods/forge/} 直下のjarは全MCバージョン共通の共有MODとして扱う。
+ * {@code IModDirectoryLocatorFactory.build} は直下のみを走査するため、共有MOD用の
+ * ロケータをルートに対して1つだけ生成すれば、配下のバージョン別フォルダは巻き込まれない
  *
  * <p>探索前に読み込まれるよう {@code META-INF/services} で登録する
  *
@@ -37,7 +42,8 @@ public class VersionModSorterForgeLocator implements IModLocator {
                 return Collections.emptyList();
             }
 
-            Path versionDir = gameDir.resolve("mods").resolve("forge").resolve(mcVersion);
+            Path modsDir = gameDir.resolve("mods").resolve("forge");
+            Path versionDir = modsDir.resolve(mcVersion);
             // 新バージョンでもMODの置き場が用意されるよう、無ければ作る
             Files.createDirectories(versionDir);
 
@@ -47,6 +53,9 @@ public class VersionModSorterForgeLocator implements IModLocator {
             }
 
             List<ModFileOrException> result = new ArrayList<>();
+            if (Files.isDirectory(modsDir)) {
+                result.addAll(factory.build(modsDir, name() + "/shared").scanMods());
+            }
             for (Path dir : modDirectories(versionDir)) {
                 result.addAll(factory.build(dir, locatorName(versionDir, dir)).scanMods());
             }

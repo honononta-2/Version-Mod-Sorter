@@ -20,8 +20,13 @@ import java.util.Locale;
 import java.util.stream.Stream;
 
 /**
- * {@code mods/fabric/<MCバージョン>/} を Fabric Loader公式の
- * {@code fabric.addMods} 経由で読み込ませる
+ * {@code mods/fabric/<MCバージョン>/} と {@code mods/fabric/} 直下のjarを
+ * Fabric Loader公式の {@code fabric.addMods} 経由で読み込ませる
+ *
+ * <p>{@code mods/fabric/} 直下のjarは全MCバージョン共通の共有MODとして扱う。
+ * {@code fabric.addMods} のディレクトリ渡しは深さ無制限で走査するため、
+ * 直下を渡すとMCバージョン別フォルダのjarまで巻き込んでしまう。
+ * これを避けるため共有MODは個別のjarファイルとして列挙する
  *
  * <p>言語アダプタとして登録するのは、MOD探索より前に静的初期化を走らせるための手段で、
  * オブジェクト生成用途では使わない
@@ -51,21 +56,23 @@ public class VersionModSorter implements LanguageAdapter {
             return;
         }
 
-        Path versionDir = loader.getGameDir().resolve("mods").resolve("fabric").resolve(mcVersion);
+        Path modsDir = loader.getGameDir().resolve("mods").resolve("fabric");
+        Path versionDir = modsDir.resolve(mcVersion);
 
         // 新バージョンでもMODの置き場が用意されるよう、無ければ作る
         ensureDir(versionDir);
 
         // 空フォルダのための無駄な再起動を避ける
-        List<String> extraDirs = new ArrayList<>();
-        addIfHasMods(extraDirs, versionDir);
+        List<String> extraPaths = new ArrayList<>();
+        addIfHasMods(extraPaths, versionDir);
+        addSharedJars(extraPaths, modsDir);
 
-        if (extraDirs.isEmpty()) {
+        if (extraPaths.isEmpty()) {
             return;
         }
 
         try {
-            relaunch(loader, extraDirs);
+            relaunch(loader, extraPaths);
         } catch (Throwable t) {
             StringWriter sw = new StringWriter();
             t.printStackTrace(new PrintWriter(sw));
@@ -97,7 +104,20 @@ public class VersionModSorter implements LanguageAdapter {
         }
     }
 
-    private static void relaunch(FabricLoader loader, List<String> extraDirs) throws Exception {
+    private static void addSharedJars(List<String> list, Path dir) {
+        if (!Files.isDirectory(dir)) {
+            return;
+        }
+        try (Stream<Path> paths = Files.list(dir)) {
+            paths.filter(Files::isRegularFile)
+                    .filter(p -> p.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".jar"))
+                    .forEach(p -> list.add(p.toAbsolutePath().toString()));
+        } catch (Exception e) {
+            log("フォルダの走査に失敗: " + dir + " (" + e + ")");
+        }
+    }
+
+    private static void relaunch(FabricLoader loader, List<String> extraPaths) throws Exception {
         List<String> inputArgs = ManagementFactory.getRuntimeMXBean().getInputArguments();
 
         String mainClass = System.getProperty("sun.java.command").split(" ")[0];
@@ -121,7 +141,7 @@ public class VersionModSorter implements LanguageAdapter {
         }
 
         String[] gameArgs = loader.getLaunchArguments(false);
-        String addMods = String.join(File.pathSeparator, extraDirs);
+        String addMods = String.join(File.pathSeparator, extraPaths);
 
         List<String> command = new ArrayList<>();
         command.add(java);

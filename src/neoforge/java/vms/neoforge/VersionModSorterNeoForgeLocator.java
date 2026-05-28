@@ -10,7 +10,12 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
- * {@code mods/neoforge/<MCバージョン>/} を NeoForge公式の {@link IModFileCandidateLocator} として探索に追加する
+ * {@code mods/neoforge/<MCバージョン>/} と {@code mods/neoforge/} 直下を
+ * NeoForge公式の {@link IModFileCandidateLocator} として探索に追加する
+ *
+ * <p>{@code mods/neoforge/} 直下のjarは全MCバージョン共通の共有MODとして扱う。
+ * {@code IModFileCandidateLocator.forFolder} は直下のみを走査するため、共有MOD用の
+ * ロケータをルートに対して1つだけ生成すれば、配下のバージョン別フォルダは巻き込まれない
  *
  * <p>探索前に読み込まれるよう {@code META-INF/services} で登録する
  *
@@ -29,9 +34,15 @@ public class VersionModSorterNeoForgeLocator implements IModFileCandidateLocator
                 return;
             }
 
-            Path versionDir = gameDir.resolve("mods").resolve("neoforge").resolve(mcVersion);
+            Path modsDir = gameDir.resolve("mods").resolve("neoforge");
+            Path versionDir = modsDir.resolve(mcVersion);
             // 新バージョンでもMODの置き場が用意されるよう、無ければ作る
             Files.createDirectories(versionDir);
+
+            if (Files.isDirectory(modsDir)) {
+                IModFileCandidateLocator.forFolder(modsDir.toFile(), "version-mod-sorter/shared")
+                        .findCandidates(context, pipeline);
+            }
 
             try (Stream<Path> paths = Files.walk(versionDir)) {
                 for (Path dir : paths.filter(Files::isDirectory).collect(Collectors.toList())) {
