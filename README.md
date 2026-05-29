@@ -7,7 +7,7 @@
 ![Forge](https://img.shields.io/badge/Forge-supported-brightgreen)
 ![NeoForge](https://img.shields.io/badge/NeoForge-supported-brightgreen)
 
-# Version Mod Sorter
+# Version Mod Sorter (VMS)
 
 A Minecraft mod that loads mods from version-specific folders. Supports Fabric, Forge, and NeoForge.
 
@@ -93,6 +93,10 @@ At launch, the mod detects the current loader and Minecraft version, then loads 
 - On Fabric, if there are mods to load, the process is relaunched once at startup. Forge and NeoForge do not require a relaunch.
 - This mod relies on internal loader implementations, so a major loader update may cause it to stop working. In that case, only this mod is affected — it does not modify Minecraft or the loader itself, so the game and other mods will be fine.
 
+## Related Mods
+
+- [Version World Sorter](../../../Version-World-Sorter) — Because VMS keeps mods for many versions in one shared `mods` folder, every save world stays visible from every version, and opening a world with the wrong version can corrupt it. Version World Sorter hides worlds that don't match the current Minecraft version from the world selection screen to prevent this. The two work well together, but either can also be used on its own.
+
 ## Support
 
 Please report bugs and ask questions via [Issues](../../issues).
@@ -101,7 +105,7 @@ Please report bugs and ask questions via [Issues](../../issues).
 
 <a id="japanese"></a>
 
-# Version Mod Sorter（日本語）
+# Version Mod Sorter（VMS）
 
 Minecraftのバージョンごとに、対応するMODだけを読み込ませるMOD。Fabric・Forge・NeoForgeに対応しています。
 
@@ -186,6 +190,10 @@ mods/fabric/1.20.4/
 - `mods/<ローダー>/<バージョン>/` のMODは、通常の `mods/` 直下のMODに加えて読み込まれます。
 - Fabricでは、読み込むMODがある場合に起動時のプロセスを一度だけ起動し直すため、起動が二段階になります。Forge・NeoForgeでは起動し直しは行いません。
 - 各ローダーの内部実装を利用しているため、ローダーの大型アップデートで読み込みが機能しなくなる場合があります。その場合もMinecraft本体やローダーの書き換えは行っていないため、本MODが働かなくなるだけで、ゲーム自体やほかのMODへの影響はありません。
+
+## 関連MOD
+
+- [Version World Sorter](../../../Version-World-Sorter) — VMSは複数バージョンのMODを1つの共有 `mods` フォルダで管理するため、すべてのセーブがどのバージョンからも見えてしまい、バージョンの合わないワールドを誤って開くと破損する恐れがあります。Version World Sorterは、現在のMinecraftバージョンに合わないワールドをワールド選択画面から非表示にして、この事故を抑制するMODです。VMSと組み合わせると効果的ですが、どちらも単体でも使えます。
 
 ## 問い合わせ
 
