@@ -4,8 +4,12 @@ import net.neoforged.neoforgespi.ILaunchContext;
 import net.neoforged.neoforgespi.locating.IDiscoveryPipeline;
 import net.neoforged.neoforgespi.locating.IModFileCandidateLocator;
 
+import java.io.PrintWriter;
+import java.io.StringWriter;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -27,10 +31,12 @@ public class VersionModSorterNeoForgeLocator implements IModFileCandidateLocator
     @Override
     public void findCandidates(ILaunchContext context, IDiscoveryPipeline pipeline) {
         // 想定外のNeoForgeバージョンでもNeoForgeを巻き込まないよう、失敗時は何もしない
+        Path gameDir = null;
         try {
             String mcVersion = mcVersion(context);
-            Path gameDir = gameDir(context);
+            gameDir = gameDir(context);
             if (mcVersion == null || gameDir == null) {
+                log(gameDir, "MCバージョンまたはゲームディレクトリを特定できず、読み込み先を追加しません");
                 return;
             }
 
@@ -51,8 +57,28 @@ public class VersionModSorterNeoForgeLocator implements IModFileCandidateLocator
                 }
             }
         } catch (Throwable t) {
-            // 何もしない
+            log(gameDir, "読み込み先の追加に失敗しました:\n" + stackTrace(t));
         }
+    }
+
+    // メッセージをログファイルに残す
+    private static void log(Path gameDir, String msg) {
+        if (gameDir == null) {
+            return;
+        }
+        try {
+            Path logFile = gameDir.resolve("logs").resolve("version-mod-sorter.log");
+            Files.createDirectories(logFile.getParent());
+            Files.write(logFile, ("[VMS/NeoForge] " + msg + System.lineSeparator()).getBytes(StandardCharsets.UTF_8),
+                    StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static String stackTrace(Throwable t) {
+        StringWriter sw = new StringWriter();
+        t.printStackTrace(new PrintWriter(sw));
+        return sw.toString();
     }
 
     @Override

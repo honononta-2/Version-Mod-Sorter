@@ -6,8 +6,12 @@ import net.minecraftforge.forgespi.locating.IModLocator;
 import net.minecraftforge.forgespi.locating.IModLocator.ModFileOrException;
 
 import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.StringWriter;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -35,10 +39,12 @@ public class VersionModSorterForgeLocator implements IModLocator {
 
     @Override
     public List<ModFileOrException> scanMods() {
+        Path gameDir = null;
         try {
             String mcVersion = mcVersion();
-            Path gameDir = gameDir();
+            gameDir = gameDir();
             if (mcVersion == null || gameDir == null) {
+                log(gameDir, "MCバージョンまたはゲームディレクトリを特定できず、読み込み先を追加しません");
                 return Collections.emptyList();
             }
 
@@ -49,6 +55,7 @@ public class VersionModSorterForgeLocator implements IModLocator {
 
             IModDirectoryLocatorFactory factory = directoryLocatorFactory();
             if (factory == null) {
+                log(gameDir, "ディレクトリロケータのファクトリを取得できず、読み込み先を追加しません");
                 return Collections.emptyList();
             }
 
@@ -61,6 +68,7 @@ public class VersionModSorterForgeLocator implements IModLocator {
             }
             return result;
         } catch (Throwable t) {
+            log(gameDir, "読み込み先の追加に失敗しました:\n" + stackTrace(t));
             return Collections.emptyList();
         }
     }
@@ -95,6 +103,26 @@ public class VersionModSorterForgeLocator implements IModLocator {
             return name();
         }
         return name() + "/" + root.relativize(dir).toString().replace('\\', '/');
+    }
+
+    // メッセージをログファイルに残す
+    private static void log(Path gameDir, String msg) {
+        if (gameDir == null) {
+            return;
+        }
+        try {
+            Path logFile = gameDir.resolve("logs").resolve("version-mod-sorter.log");
+            Files.createDirectories(logFile.getParent());
+            Files.write(logFile, ("[VMS/Forge] " + msg + System.lineSeparator()).getBytes(StandardCharsets.UTF_8),
+                    StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static String stackTrace(Throwable t) {
+        StringWriter sw = new StringWriter();
+        t.printStackTrace(new PrintWriter(sw));
+        return sw.toString();
     }
 
     private static String mcVersion() throws Exception {

@@ -5,18 +5,23 @@ import net.fabricmc.loader.api.LanguageAdapter;
 import net.fabricmc.loader.api.LanguageAdapterException;
 import net.fabricmc.loader.api.ModContainer;
 
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.lang.management.ManagementFactory;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Stream;
 
 /**
@@ -37,16 +42,23 @@ import java.util.stream.Stream;
 @SuppressWarnings("unused")
 public class VersionModSorter implements LanguageAdapter {
     private static final String RELAUNCH_FLAG = "vms.relaunched";
+    private static final String PARENT_PID_FLAG = "vms.parentPid";
+    private static final String ADDMODS_FILE_FLAG = "vms.addModsFile";
+    // fabric.addMods をコマンドラインへ直接渡せる上限
+    private static final int ADDMODS_INLINE_LIMIT = 8000;
 
     private static Path logFile;
 
     private static void init() {
-        if (System.getProperty(RELAUNCH_FLAG) != null) {
-            return;
-        }
-
         FabricLoader loader = FabricLoader.getInstance();
         logFile = loader.getGameDir().resolve("logs").resolve("version-mod-sorter.log");
+
+        // 再起動後の子プロセスでは、親が消えたら道連れに終了する監視だけ行う
+        if (System.getProperty(RELAUNCH_FLAG) != null) {
+            deleteAddModsFile();
+            startParentWatch();
+            return;
+        }
 
         String mcVersion = loader.getModContainer("minecraft")
                 .map(c -> c.getMetadata().getVersion().getFriendlyString())
@@ -131,7 +143,10 @@ public class VersionModSorter implements LanguageAdapter {
 
         String cp = System.getProperty("java.class.path");
 
-        if (mainClass.equals("org.multimc.EntryPoint")) {
+        // 一部のランチャー経由の起動では、メインクラスをKnotClientに差し替える
+        if (mainClass.equals("org.multimc.EntryPoint")
+                || mainClass.equals("org.polymc.EntryPoint")
+                || mainClass.equals("org.prismlauncher.EntryPoint")) {
             try {
                 Class.forName("net.fabricmc.loader.launch.knot.KnotClient");
                 mainClass = "net.fabricmc.loader.launch.knot.KnotClient";
@@ -141,7 +156,19 @@ public class VersionModSorter implements LanguageAdapter {
         }
 
         String[] gameArgs = loader.getLaunchArguments(false);
-        String addMods = String.join(File.pathSeparator, extraPaths);
+
+        // ユーザーが指定済みの fabric.addMods を引き継ぐ
+        List<String> allMods = new ArrayList<>();
+        String existing = System.getProperty("fabric.addMods");
+        if (existing != null && !existing.isEmpty()) {
+            for (String p : existing.split(File.pathSeparator)) {
+                if (!p.isEmpty()) {
+                    allMods.add(p);
+                }
+            }
+        }
+        allMods.addAll(extraPaths);
+        String addMods = buildAddModsArg(allMods);
 
         List<String> command = new ArrayList<>();
         command.add(java);
@@ -149,7 +176,11 @@ public class VersionModSorter implements LanguageAdapter {
         // 値に空白を含むもの（-DFabricMcEmu= net.minecraft.client.main.Main など）があるため、
         // 連結して分割し直さず要素のまま渡す
         for (String arg : inputArgs) {
-            if (arg.contains("-agentlib") || arg.contains("-javaagent")) {
+            if (arg.startsWith("-agentlib") || arg.startsWith("-javaagent")) {
+                continue;
+            }
+            // fabric.addMods はVMSの分を含めて組み直すので、元の指定は持ち込まない
+            if (arg.startsWith("-Dfabric.addMods=")) {
                 continue;
             }
             command.add(arg);
@@ -159,7 +190,16 @@ public class VersionModSorter implements LanguageAdapter {
             command.add("-XstartOnFirstThread");
         }
         command.add("-D" + RELAUNCH_FLAG + "=true");
+        // 古いJVMのポーリング監視用に親PIDを渡す
+        String pid = currentPid();
+        if (pid != null) {
+            command.add("-D" + PARENT_PID_FLAG + "=" + pid);
+        }
         command.add("-Dfabric.addMods=" + addMods);
+        // 子が削除できるよう、リストファイルのパスを渡す
+        if (addMods.startsWith("@")) {
+            command.add("-D" + ADDMODS_FILE_FLAG + "=" + addMods.substring(1));
+        }
         command.add("-cp");
         command.add(cp);
         command.add(mainClass);
@@ -167,6 +207,129 @@ public class VersionModSorter implements LanguageAdapter {
 
         Process process = new ProcessBuilder(command).inheritIO().start();
         System.exit(process.waitFor());
+    }
+
+    // 親プロセスの終了を検知して、この子プロセスを終了させる
+    private static void startParentWatch() {
+        // 新しめのJVMは ProcessHandle で親を直接監視する（OS非依存）
+        if (watchParentViaProcessHandle()) {
+            return;
+        }
+        // 古いJVMは親PIDのポーリングで監視する
+        watchParentViaPolling(System.getProperty(PARENT_PID_FLAG));
+    }
+
+    private static boolean watchParentViaProcessHandle() {
+        try {
+            Class<?> phClass = Class.forName("java.lang.ProcessHandle");
+            Object current = phClass.getMethod("current").invoke(null);
+            Optional<?> parent = (Optional<?>) phClass.getMethod("parent").invoke(current);
+            if (!parent.isPresent()) {
+                return false;
+            }
+            CompletableFuture<?> onExit = (CompletableFuture<?>) phClass.getMethod("onExit").invoke(parent.get());
+            onExit.thenRun(() -> Runtime.getRuntime().halt(0));
+            return true;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    private static void watchParentViaPolling(String parentPid) {
+        if (parentPid == null || parentPid.isEmpty()) {
+            return;
+        }
+        Thread watcher = new Thread(() -> {
+            while (!Thread.currentThread().isInterrupted()) {
+                if (!isProcessAlive(parentPid)) {
+                    Runtime.getRuntime().halt(0);
+                }
+                try {
+                    Thread.sleep(3000);
+                } catch (InterruptedException e) {
+                    return;
+                }
+            }
+        }, "vms-parent-watch");
+        watcher.setDaemon(true);
+        watcher.start();
+    }
+
+    // 指定PIDのプロセスが生存しているか。判定できないときは生存扱いとし、誤って終了させない
+    private static boolean isProcessAlive(String pid) {
+        try {
+            boolean windows = System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("win");
+            ProcessBuilder pb = windows
+                    ? new ProcessBuilder("tasklist", "/FI", "PID eq " + pid, "/NH", "/FO", "CSV")
+                    : new ProcessBuilder("kill", "-0", pid);
+            pb.redirectErrorStream(true);
+            Process p = pb.start();
+            StringBuilder out = new StringBuilder();
+            try (BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = r.readLine()) != null) {
+                    out.append(line).append('\n');
+                }
+            }
+            int code = p.waitFor();
+            if (windows) {
+                // tasklistは常に成功するため、CSVのPID列に該当PIDが現れるかで判断する
+                return out.toString().contains("\"" + pid + "\"");
+            }
+            return code == 0;
+        } catch (Exception e) {
+            return true;
+        }
+    }
+
+    private static String currentPid() {
+        try {
+            Class<?> phClass = Class.forName("java.lang.ProcessHandle");
+            Object current = phClass.getMethod("current").invoke(null);
+            long pid = (long) phClass.getMethod("pid").invoke(current);
+            return Long.toString(pid);
+        } catch (Throwable ignore) {
+            // ProcessHandle の無い古いJVM
+        }
+        try {
+            String name = ManagementFactory.getRuntimeMXBean().getName();
+            int at = name.indexOf('@');
+            if (at > 0) {
+                return name.substring(0, at);
+            }
+        } catch (Throwable ignore) {
+        }
+        return null;
+    }
+
+    // 読み込み先を fabric.addMods へ渡す引数に組み立てる
+    private static String buildAddModsArg(List<String> paths) {
+        String joined = String.join(File.pathSeparator, paths);
+        if (joined.length() <= ADDMODS_INLINE_LIMIT) {
+            return joined;
+        }
+        try {
+            File tmp = File.createTempFile("vms-addmods", ".txt");
+            tmp.deleteOnExit();
+            Path listFile = tmp.toPath();
+            Files.write(listFile, paths, StandardCharsets.UTF_8);
+            return "@" + listFile.toAbsolutePath();
+        } catch (Exception e) {
+            log("addModsリストファイルの作成に失敗したため、パスを直接指定します: " + e);
+            return joined;
+        }
+    }
+
+    // fabric.addMods のリストファイルを削除する
+    private static void deleteAddModsFile() {
+        String path = System.getProperty(ADDMODS_FILE_FLAG);
+        if (path == null || path.isEmpty()) {
+            return;
+        }
+        try {
+            Files.deleteIfExists(Paths.get(path));
+        } catch (Exception ignored) {
+        }
     }
 
     private static void log(String msg) {
