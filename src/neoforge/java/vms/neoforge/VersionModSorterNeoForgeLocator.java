@@ -42,7 +42,7 @@ public class VersionModSorterNeoForgeLocator implements IModFileCandidateLocator
 
             Path modsDir = gameDir.resolve("mods").resolve("neoforge");
             Path versionDir = modsDir.resolve(mcVersion);
-            // 新バージョンでもMODの置き場が用意されるよう、無ければ作る
+            // 新バージョンでもMODの置き場が用意されるようにする
             Files.createDirectories(versionDir);
 
             if (Files.isDirectory(modsDir)) {
@@ -61,7 +61,6 @@ public class VersionModSorterNeoForgeLocator implements IModFileCandidateLocator
         }
     }
 
-    // メッセージをログファイルに残す
     private static void log(Path gameDir, String msg) {
         if (gameDir == null) {
             return;

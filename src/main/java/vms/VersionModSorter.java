@@ -30,8 +30,7 @@ import java.util.stream.Stream;
  *
  * <p>{@code mods/fabric/} 直下のjarは全MCバージョン共通の共有MODとして扱う。
  * {@code fabric.addMods} のディレクトリ渡しは深さ無制限で走査するため、
- * 直下を渡すとMCバージョン別フォルダのjarまで巻き込んでしまう。
- * これを避けるため共有MODは個別のjarファイルとして列挙する
+ * 共有MODはディレクトリではなく個別のjarとして列挙する
  *
  * <p>言語アダプタとして登録するのは、MOD探索より前に静的初期化を走らせるための手段で、
  * オブジェクト生成用途では使わない
@@ -53,7 +52,6 @@ public class VersionModSorter implements LanguageAdapter {
         FabricLoader loader = FabricLoader.getInstance();
         logFile = loader.getGameDir().resolve("logs").resolve("version-mod-sorter.log");
 
-        // 再起動後の子プロセスでは、親が消えたら道連れに終了する監視だけ行う
         if (System.getProperty(RELAUNCH_FLAG) != null) {
             deleteAddModsFile();
             startParentWatch();
@@ -71,7 +69,7 @@ public class VersionModSorter implements LanguageAdapter {
         Path modsDir = loader.getGameDir().resolve("mods").resolve("fabric");
         Path versionDir = modsDir.resolve(mcVersion);
 
-        // 新バージョンでもMODの置き場が用意されるよう、無ければ作る
+        // 新バージョンでもMODの置き場が用意されるようにする
         ensureDir(versionDir);
 
         // 空フォルダのための無駄な再起動を避ける
@@ -132,7 +130,14 @@ public class VersionModSorter implements LanguageAdapter {
     private static void relaunch(FabricLoader loader, List<String> extraPaths) throws Exception {
         List<String> inputArgs = ManagementFactory.getRuntimeMXBean().getInputArguments();
 
-        String mainClass = System.getProperty("sun.java.command").split(" ")[0];
+        String javaCommand = System.getProperty("sun.java.command");
+        if (javaCommand == null || javaCommand.isEmpty()) {
+            log("sun.java.command を取得できないため、再起動を行いません");
+            return;
+        }
+
+        String mainClass = javaCommand.split(" ")[0];
+        String launchJar = findLaunchJar(javaCommand);
 
         String osName = System.getProperty("os.name").toLowerCase(Locale.ROOT);
 
@@ -157,7 +162,6 @@ public class VersionModSorter implements LanguageAdapter {
 
         String[] gameArgs = loader.getLaunchArguments(false);
 
-        // ユーザーが指定済みの fabric.addMods を引き継ぐ
         List<String> allMods = new ArrayList<>();
         String existing = System.getProperty("fabric.addMods");
         if (existing != null && !existing.isEmpty()) {
@@ -172,11 +176,9 @@ public class VersionModSorter implements LanguageAdapter {
 
         List<String> command = new ArrayList<>();
         command.add(java);
-        // getInputArguments() は引数を要素ごとに返す
-        // 値に空白を含むもの（-DFabricMcEmu= net.minecraft.client.main.Main など）があるため、
-        // 連結して分割し直さず要素のまま渡す
+        // 値に空白を含む引数があるため、連結せず要素のまま引き継ぐ
         for (String arg : inputArgs) {
-            if (arg.startsWith("-agentlib") || arg.startsWith("-javaagent")) {
+            if (arg.startsWith("-agentlib")) {
                 continue;
             }
             // fabric.addMods はVMSの分を含めて組み直すので、元の指定は持ち込まない
@@ -200,9 +202,14 @@ public class VersionModSorter implements LanguageAdapter {
         if (addMods.startsWith("@")) {
             command.add("-D" + ADDMODS_FILE_FLAG + "=" + addMods.substring(1));
         }
-        command.add("-cp");
-        command.add(cp);
-        command.add(mainClass);
+        if (launchJar != null) {
+            command.add("-jar");
+            command.add(launchJar);
+        } else {
+            command.add("-cp");
+            command.add(cp);
+            command.add(mainClass);
+        }
         command.addAll(Arrays.asList(gameArgs));
 
         Process process = new ProcessBuilder(command).inheritIO().start();
@@ -255,7 +262,7 @@ public class VersionModSorter implements LanguageAdapter {
         watcher.start();
     }
 
-    // 指定PIDのプロセスが生存しているか。判定できないときは生存扱いとし、誤って終了させない
+    // 判定できないときは生存扱いとし、誤って終了させない
     private static boolean isProcessAlive(String pid) {
         try {
             boolean windows = System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("win");
@@ -302,6 +309,29 @@ public class VersionModSorter implements LanguageAdapter {
         return null;
     }
 
+    // -jar 起動のjarパスを起動コマンドから探す
+    private static String findLaunchJar(String javaCommand) {
+        String[] tokens = javaCommand.split(" ");
+        StringBuilder candidate = new StringBuilder();
+        for (String token : tokens) {
+            if (candidate.length() > 0) {
+                candidate.append(' ');
+            }
+            candidate.append(token);
+            String path = candidate.toString();
+            if (!path.toLowerCase(Locale.ROOT).endsWith(".jar")) {
+                continue;
+            }
+            try {
+                if (Files.isRegularFile(Paths.get(path))) {
+                    return path;
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        return null;
+    }
+
     // 読み込み先を fabric.addMods へ渡す引数に組み立てる
     private static String buildAddModsArg(List<String> paths) {
         String joined = String.join(File.pathSeparator, paths);
@@ -320,7 +350,6 @@ public class VersionModSorter implements LanguageAdapter {
         }
     }
 
-    // fabric.addMods のリストファイルを削除する
     private static void deleteAddModsFile() {
         String path = System.getProperty(ADDMODS_FILE_FLAG);
         if (path == null || path.isEmpty()) {
