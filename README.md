@@ -15,7 +15,7 @@ Place mods in `mods/<loader>/<version>/` folders (e.g. `mods/fabric/1.20.4/`), a
 
 ## Requirements
 
-- Fabric Loader 0.12.0+ / Forge 41.1.0 (Minecraft 1.19)+ / NeoForge 20.6.62-beta (Minecraft 1.20.6)+
+- Fabric Loader 0.13.0+ / Forge 41.1.0 (Minecraft 1.19)+ / NeoForge 20.6.62-beta (Minecraft 1.20.6)+
 - A single jar works across all supported loaders and Minecraft versions — no need for separate builds.
 
 ## Installation
@@ -113,7 +113,7 @@ Minecraftのバージョンごとに、対応するMODだけを読み込ませ�
 
 ## 動作環境
 
-- Fabric Loader 0.12.0 以降 / Forge 41.1.0（Minecraft 1.19）以降 / NeoForge 20.6.62-beta（Minecraft 1.20.6）以降
+- Fabric Loader 0.13.0 以降 / Forge 41.1.0（Minecraft 1.19）以降 / NeoForge 20.6.62-beta（Minecraft 1.20.6）以降
 - 対応ローダーが動作するMinecraftのバージョンであれば、MCのバージョンごとに別のjarを用意する必要はありません。1つのjarで動作します。
 
 ## 導入

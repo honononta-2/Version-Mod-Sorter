@@ -15,6 +15,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -58,6 +59,8 @@ public class VersionModSorter implements LanguageAdapter {
             return;
         }
 
+        rotateLog();
+
         String mcVersion = loader.getModContainer("minecraft")
                 .map(c -> c.getMetadata().getVersion().getFriendlyString())
                 .orElse(null);
@@ -82,7 +85,7 @@ public class VersionModSorter implements LanguageAdapter {
         }
 
         try {
-            relaunch(loader, extraPaths);
+            relaunch(loader, mcVersion, extraPaths);
         } catch (Throwable t) {
             StringWriter sw = new StringWriter();
             t.printStackTrace(new PrintWriter(sw));
@@ -127,7 +130,7 @@ public class VersionModSorter implements LanguageAdapter {
         }
     }
 
-    private static void relaunch(FabricLoader loader, List<String> extraPaths) throws Exception {
+    private static void relaunch(FabricLoader loader, String mcVersion, List<String> extraPaths) throws Exception {
         List<String> inputArgs = ManagementFactory.getRuntimeMXBean().getInputArguments();
 
         String javaCommand = System.getProperty("sun.java.command");
@@ -212,8 +215,73 @@ public class VersionModSorter implements LanguageAdapter {
         }
         command.addAll(Arrays.asList(gameArgs));
 
+        long launchTime = System.currentTimeMillis();
         Process process = new ProcessBuilder(command).inheritIO().start();
-        System.exit(process.waitFor());
+        int exitCode = process.waitFor();
+        if (exitCode != 0) {
+            analyzeCrash(loader, mcVersion, extraPaths, launchTime);
+        }
+        System.exit(exitCode);
+    }
+
+    // 子プロセスの異常終了時の痕跡解析と通知
+    private static void analyzeCrash(FabricLoader loader, String mcVersion,
+            List<String> extraPaths, long launchTime) {
+        try {
+            // ローダーのエラーGUIと同じ抑制条件に従う
+            if (System.getProperty("fabric.noGui") != null || System.getenv("CI") != null
+                    || java.awt.GraphicsEnvironment.isHeadless()) {
+                return;
+            }
+            CrashTraceInspector.run(loader.getGameDir(), launchTime, mcVersion, collectMods(loader, extraPaths));
+        } catch (Throwable t) {
+            log("クラッシュ解析に失敗しました: " + t);
+        }
+    }
+
+    // 子プロセスに読み込ませたMODの一覧
+    private static List<CrashTraceInspector.ModEntry> collectMods(FabricLoader loader, List<String> extraPaths) {
+        List<CrashTraceInspector.ModEntry> mods = new ArrayList<>();
+        for (ModContainer mod : loader.getAllMods()) {
+            try {
+                for (Path origin : mod.getOrigin().getPaths()) {
+                    if (isJarFile(origin)) {
+                        mods.add(new CrashTraceInspector.ModEntry(mod.getMetadata().getId(),
+                                mod.getMetadata().getName(), origin.toAbsolutePath()));
+                    }
+                }
+            } catch (Throwable ignored) {
+                // 組み込みMODやgetOriginの無い旧loaderは対象外
+            }
+        }
+        for (String pathStr : extraPaths) {
+            Path path = Paths.get(pathStr);
+            if (Files.isDirectory(path)) {
+                try (Stream<Path> paths = Files.walk(path)) {
+                    for (Path p : (Iterable<Path>) paths::iterator) {
+                        addJarEntry(mods, p);
+                    }
+                } catch (Exception e) {
+                    log("フォルダの走査に失敗: " + path + " (" + e + ")");
+                }
+            } else {
+                addJarEntry(mods, path);
+            }
+        }
+        return mods;
+    }
+
+    private static void addJarEntry(List<CrashTraceInspector.ModEntry> mods, Path p) {
+        if (isJarFile(p)) {
+            CrashTraceInspector.ModEntry entry = CrashTraceInspector.entryFromJar(p);
+            if (entry != null) {
+                mods.add(entry);
+            }
+        }
+    }
+
+    private static boolean isJarFile(Path p) {
+        return Files.isRegularFile(p) && p.toString().toLowerCase(Locale.ROOT).endsWith(".jar");
     }
 
     // 親プロセスの終了を検知して、この子プロセスを終了させる
@@ -361,7 +429,20 @@ public class VersionModSorter implements LanguageAdapter {
         }
     }
 
+    // 前回セッション分は1世代だけ残し、ログの肥大を防ぐ
+    private static void rotateLog() {
+        try {
+            if (Files.isRegularFile(logFile)) {
+                Files.move(logFile, logFile.resolveSibling("version-mod-sorter.log.old"),
+                        StandardCopyOption.REPLACE_EXISTING);
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    // 異常の記録のみに使い、正常動作ではファイルを作らない
     private static void log(String msg) {
+        System.err.println("[VMS] " + msg);
         if (logFile == null) {
             return;
         }
