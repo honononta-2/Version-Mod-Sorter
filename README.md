@@ -81,6 +81,19 @@ mods/fabric/1.20.4/
 
 At launch, the mod detects the current loader and Minecraft version, then loads mods from `mods/<loader>/<version>/`. It uses each loader's official mechanism (Fabric's `fabric.addMods`, Forge/NeoForge's mod discovery API) and does not modify any Minecraft classes or bytecode. This is why a single jar works across all loaders and versions.
 
+## Crash Analysis (Fabric)
+
+When the game crashes on Fabric, VMS analyzes the cause and shows a dialog. It checks crash reports (`crash-reports/`) first, then falls back to the tail of `logs/latest.log`.
+
+It detects two categories of crashes and shows the involved mods and suggested fixes:
+
+- **Mod conflicts** — when multiple mods modify the same code and collide, both mod names are shown with the suggestion to remove one or check for updates
+- **Version mismatch** — when a mod references code that does not exist in the current Minecraft version, the mod name is shown with the suggestion to move it to the matching version folder, update it, or remove it
+
+For crashes that match neither category, VMS still lists mods inferred from the stack trace. If the loader itself reports a mod resolution failure (`Mod resolution failed`, etc.), VMS stays silent because the loader already shows its own error screen.
+
+![Example crash analysis dialog](images/crash-dialog.png)
+
 ## Tested Environments
 
 - Windows 11 — Fabric Loader 0.19.2 / Forge 44.1.23 (MC 1.19.3) / Forge 54.1.16 (MC 1.21.4) / Forge 62.0.9 (MC 26.1) / Forge 64.0.8 (MC 26.1.2) / NeoForge 21.4.157 / NeoForge 26.1.2.66-beta
@@ -178,6 +191,19 @@ mods/fabric/1.20.4/
 ## 仕組み
 
 起動時に実行中のローダーとMinecraftバージョンを判定し、`mods/<ローダー>/<バージョン>/` のMODを読み込みます。読み込みには各ローダー公式の仕組み（Fabricの `fabric.addMods`、Forge・NeoForgeのMOD探索API）を使い、Minecraftのクラスやバイトコードの書き換えには一切触れていません。そのため1つのjarがどのローダー・バージョンでも動作します。
+
+## クラッシュ解析（Fabric）
+
+Fabricでゲームがクラッシュしたとき、原因を解析してダイアログで通知します。クラッシュレポート（`crash-reports/`）を優先し、無ければ `logs/latest.log` の末尾を調べます。
+
+以下の2系統を検出し、それぞれ関与したMODと修正案を表示します。
+
+- **MOD同士の競合** — 複数のMODが同じコードを書き換えて衝突した場合、両方のMOD名を示して「どちらかを外すか更新を確認してください」と案内します
+- **バージョン不整合** — 現在のMinecraftバージョンに存在しないコードをMODが参照している場合、該当MOD名を示して「対応するバージョンのフォルダへ移動、更新、または削除してください」と案内します
+
+どちらにも該当しないクラッシュでも、スタックトレースから関与したMODを推定して一覧で示します。原因がローダー自身のMOD解決失敗（`Mod resolution failed` 等）だった場合は、ローダーが独自のエラー画面を出すため重ねて通知しません。
+
+![クラッシュ解析ダイアログの例](images/crash-dialog.png)
 
 ## テスト済み環境
 
