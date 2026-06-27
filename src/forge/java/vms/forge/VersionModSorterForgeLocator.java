@@ -44,7 +44,7 @@ public class VersionModSorterForgeLocator implements IModLocator {
             String mcVersion = mcVersion();
             gameDir = gameDir();
             if (mcVersion == null || gameDir == null) {
-                log(gameDir, "MCバージョンまたはゲームディレクトリを特定できず、読み込み先を追加しません");
+                log(gameDir, "Could not determine the MC version or game directory; skipping mod folder setup");
                 return Collections.emptyList();
             }
 
@@ -55,7 +55,7 @@ public class VersionModSorterForgeLocator implements IModLocator {
 
             IModDirectoryLocatorFactory factory = directoryLocatorFactory();
             if (factory == null) {
-                log(gameDir, "ディレクトリロケータのファクトリを取得できず、読み込み先を追加しません");
+                log(gameDir, "Could not obtain the directory locator factory; skipping mod folder setup");
                 return Collections.emptyList();
             }
 
@@ -68,7 +68,7 @@ public class VersionModSorterForgeLocator implements IModLocator {
             }
             return result;
         } catch (Throwable t) {
-            log(gameDir, "読み込み先の追加に失敗しました:\n" + stackTrace(t));
+            log(gameDir, "Failed to add mod folders:\n" + stackTrace(t));
             return Collections.emptyList();
         }
     }

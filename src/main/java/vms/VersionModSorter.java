@@ -65,7 +65,7 @@ public class VersionModSorter implements LanguageAdapter {
                 .map(c -> c.getMetadata().getVersion().getFriendlyString())
                 .orElse(null);
         if (mcVersion == null) {
-            log("Minecraftのバージョンを特定できなかったため、読み込み先の追加を行いません");
+            log("Could not determine the Minecraft version; skipping mod folder setup");
             return;
         }
 
@@ -89,8 +89,8 @@ public class VersionModSorter implements LanguageAdapter {
         } catch (Throwable t) {
             StringWriter sw = new StringWriter();
             t.printStackTrace(new PrintWriter(sw));
-            log("再起動に失敗しました:\n" + sw);
-            throw new RuntimeException("Version Mod Sorter の再起動に失敗しました", t);
+            // 例外を投げると静的初期化中のためErrorに化け、ローダーの起動ごと止まるので通常起動へフォールバックする
+            log("Relaunch failed; starting normally without version-specific mods:\n" + sw);
         }
     }
 
@@ -98,7 +98,7 @@ public class VersionModSorter implements LanguageAdapter {
         try {
             Files.createDirectories(dir);
         } catch (Exception e) {
-            log("フォルダの作成に失敗: " + dir + " (" + e + ")");
+            log("Failed to create folder: " + dir + " (" + e + ")");
         }
     }
 
@@ -113,7 +113,7 @@ public class VersionModSorter implements LanguageAdapter {
                 list.add(dir.toAbsolutePath().toString());
             }
         } catch (Exception e) {
-            log("フォルダの走査に失敗: " + dir + " (" + e + ")");
+            log("Failed to scan folder: " + dir + " (" + e + ")");
         }
     }
 
@@ -126,7 +126,7 @@ public class VersionModSorter implements LanguageAdapter {
                     .filter(p -> p.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".jar"))
                     .forEach(p -> list.add(p.toAbsolutePath().toString()));
         } catch (Exception e) {
-            log("フォルダの走査に失敗: " + dir + " (" + e + ")");
+            log("Failed to scan folder: " + dir + " (" + e + ")");
         }
     }
 
@@ -135,7 +135,7 @@ public class VersionModSorter implements LanguageAdapter {
 
         String javaCommand = System.getProperty("sun.java.command");
         if (javaCommand == null || javaCommand.isEmpty()) {
-            log("sun.java.command を取得できないため、再起動を行いません");
+            log("sun.java.command is unavailable; skipping relaunch");
             return;
         }
 
@@ -235,7 +235,7 @@ public class VersionModSorter implements LanguageAdapter {
             }
             CrashTraceInspector.run(loader.getGameDir(), launchTime, mcVersion, collectMods(loader, extraPaths));
         } catch (Throwable t) {
-            log("クラッシュ解析に失敗しました: " + t);
+            log("Crash analysis failed: " + t);
         }
     }
 
@@ -262,7 +262,7 @@ public class VersionModSorter implements LanguageAdapter {
                         addJarEntry(mods, p);
                     }
                 } catch (Exception e) {
-                    log("フォルダの走査に失敗: " + path + " (" + e + ")");
+                    log("Failed to scan folder: " + path + " (" + e + ")");
                 }
             } else {
                 addJarEntry(mods, path);
@@ -413,7 +413,7 @@ public class VersionModSorter implements LanguageAdapter {
             Files.write(listFile, paths, StandardCharsets.UTF_8);
             return "@" + listFile.toAbsolutePath();
         } catch (Exception e) {
-            log("addModsリストファイルの作成に失敗したため、パスを直接指定します: " + e);
+            log("Failed to create the addMods list file; passing paths inline: " + e);
             return joined;
         }
     }
@@ -456,7 +456,7 @@ public class VersionModSorter implements LanguageAdapter {
 
     @Override
     public <T> T create(ModContainer mod, String value, Class<T> type) throws LanguageAdapterException {
-        throw new LanguageAdapterException("Version Mod Sorter はオブジェクト生成用の言語アダプタではありません");
+        throw new LanguageAdapterException("Version Mod Sorter is not a language adapter for object creation");
     }
 
     static {
