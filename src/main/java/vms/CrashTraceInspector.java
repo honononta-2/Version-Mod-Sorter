@@ -184,6 +184,10 @@ final class CrashTraceInspector {
         return new ModEntry(meta[0], meta[1], jar);
     }
 
+    public static void showMessage(String message) throws Exception {
+        showDialog(message);
+    }
+
     // macOSの-XstartOnFirstThread下でAWTがハングするため、ダイアログは別JVMで表示する
     private static void showDialog(String message) throws Exception {
         String java = System.getProperty("java.home") + "/bin/java";

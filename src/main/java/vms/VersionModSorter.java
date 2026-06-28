@@ -65,7 +65,10 @@ public class VersionModSorter implements LanguageAdapter {
                 .map(c -> c.getMetadata().getVersion().getFriendlyString())
                 .orElse(null);
         if (mcVersion == null) {
-            log("Could not determine the Minecraft version; skipping mod folder setup");
+            stopWithDialog(
+                    "Could not determine the Minecraft version; stopping. "
+                            + "Try moving Version Mod Sorter out of the mods folder.",
+                    "Could not determine the Minecraft version; stopping.");
             return;
         }
 
@@ -89,9 +92,26 @@ public class VersionModSorter implements LanguageAdapter {
         } catch (Throwable t) {
             StringWriter sw = new StringWriter();
             t.printStackTrace(new PrintWriter(sw));
-            // 例外を投げると静的初期化中のためErrorに化け、ローダーの起動ごと止まるので通常起動へフォールバックする
-            log("Relaunch failed; starting normally without version-specific mods:\n" + sw);
+            stopWithDialog(
+                    "Version Mod Sorter could not relaunch and will stop. "
+                            + "Try moving Version Mod Sorter out of the mods folder.\n\n" + sw,
+                    "Relaunch failed:\n" + sw);
         }
+    }
+
+    // 再起動失敗でダイアログ表示して停止
+    private static void stopWithDialog(String message, String logMessage) {
+        if (System.getProperty("fabric.noGui") != null || System.getenv("CI") != null
+                || java.awt.GraphicsEnvironment.isHeadless()) {
+            log(logMessage);
+        } else {
+            try {
+                CrashTraceInspector.showMessage(message);
+            } catch (Throwable d) {
+                log(logMessage);
+            }
+        }
+        System.exit(1);
     }
 
     private static void ensureDir(Path dir) {
