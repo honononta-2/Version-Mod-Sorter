@@ -8,6 +8,7 @@ import net.minecraftforge.forgespi.locating.IModLocator.ModFileOrException;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -21,6 +22,7 @@ import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import java.util.zip.ZipFile;
 
 /**
  * {@code mods/forge/<MCバージョン>/} と {@code mods/forge/} 直下を Forge公式の {@link IModLocator}
@@ -36,6 +38,8 @@ import java.util.stream.Stream;
  * Java 25向けで、JDK17ビルドから直接参照できないためリフレクションで呼ぶ
  */
 public class VersionModSorterForgeLocator implements IModLocator {
+
+    private static final String OWN_CLASS_ENTRY = "vms/forge/VersionModSorterForgeLocator.class";
 
     @Override
     public List<ModFileOrException> scanMods() {
@@ -61,10 +65,10 @@ public class VersionModSorterForgeLocator implements IModLocator {
 
             List<ModFileOrException> result = new ArrayList<>();
             if (Files.isDirectory(modsDir)) {
-                result.addAll(factory.build(modsDir, name() + "/shared").scanMods());
+                result.addAll(scanWithoutOwnJars(factory, modsDir, name() + "/shared"));
             }
             for (Path dir : modDirectories(versionDir)) {
-                result.addAll(factory.build(dir, locatorName(versionDir, dir)).scanMods());
+                result.addAll(scanWithoutOwnJars(factory, dir, locatorName(versionDir, dir)));
             }
             return result;
         } catch (Throwable t) {
@@ -90,6 +94,42 @@ public class VersionModSorterForgeLocator implements IModLocator {
     @Override
     public boolean isValid(IModFile modFile) {
         return false;
+    }
+
+    // VMSのjarを走査結果から除く
+    private static List<ModFileOrException> scanWithoutOwnJars(IModDirectoryLocatorFactory factory, Path dir,
+            String locatorName) {
+        IModLocator locator = factory.build(dir, locatorName);
+        List<ModFileOrException> scanned = locator.scanMods();
+
+        List<Path> candidates;
+        try {
+            Method scanCandidates = locator.getClass().getMethod("scanCandidates");
+            try (Stream<?> paths = (Stream<?>) scanCandidates.invoke(locator)) {
+                candidates = paths.map(p -> (Path) p).collect(Collectors.toList());
+            }
+        } catch (Throwable t) {
+            return scanned;
+        }
+        if (candidates.size() != scanned.size()) {
+            return scanned;
+        }
+
+        List<ModFileOrException> result = new ArrayList<>();
+        for (int i = 0; i < scanned.size(); i++) {
+            if (!isOwnJar(candidates.get(i))) {
+                result.add(scanned.get(i));
+            }
+        }
+        return result;
+    }
+
+    private static boolean isOwnJar(Path path) {
+        try (ZipFile zip = new ZipFile(path.toFile())) {
+            return zip.getEntry(OWN_CLASS_ENTRY) != null;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     private static List<Path> modDirectories(Path root) throws IOException {

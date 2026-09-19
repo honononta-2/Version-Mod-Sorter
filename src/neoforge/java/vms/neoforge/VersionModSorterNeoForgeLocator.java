@@ -10,8 +10,10 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.Locale;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import java.util.zip.ZipFile;
 
 /**
  * {@code mods/neoforge/<MCバージョン>/} と {@code mods/neoforge/} 直下を
@@ -27,6 +29,14 @@ import java.util.stream.Stream;
  * 新しい系のメソッドを試し、無ければ {@code FMLLoader}・{@code FMLPaths} へフォールバックする
  */
 public class VersionModSorterNeoForgeLocator implements IModFileCandidateLocator {
+
+    private static final String OWN_CLASS_ENTRY = "vms/neoforge/VersionModSorterNeoForgeLocator.class";
+
+    // NeoForgeのmodsフォルダ走査より先に実行させる
+    @Override
+    public int getPriority() {
+        return 100;
+    }
 
     @Override
     public void findCandidates(ILaunchContext context, IDiscoveryPipeline pipeline) {
@@ -45,19 +55,46 @@ public class VersionModSorterNeoForgeLocator implements IModFileCandidateLocator
             // 新バージョンでもMODの置き場が用意されるようにする
             Files.createDirectories(versionDir);
 
+            // NeoForgeが走査するパスと同じ形に揃える
+            markOwnJarsLocated(context, gameDir.resolve("mods").toAbsolutePath().normalize(), gameDir);
+
             if (Files.isDirectory(modsDir)) {
+                markOwnJarsLocated(context, modsDir, gameDir);
                 IModFileCandidateLocator.forFolder(modsDir.toFile(), "version-mod-sorter/shared")
                         .findCandidates(context, pipeline);
             }
 
             try (Stream<Path> paths = Files.walk(versionDir)) {
                 for (Path dir : paths.filter(Files::isDirectory).collect(Collectors.toList())) {
+                    markOwnJarsLocated(context, dir, gameDir);
                     IModFileCandidateLocator.forFolder(dir.toFile(), locatorName(versionDir, dir))
                             .findCandidates(context, pipeline);
                 }
             }
         } catch (Throwable t) {
             log(gameDir, "Failed to add mod folders:\n" + stackTrace(t));
+        }
+    }
+
+    // VMSのjarをMOD候補から除く
+    private static void markOwnJarsLocated(ILaunchContext context, Path dir, Path gameDir) {
+        try (Stream<Path> paths = Files.list(dir)) {
+            for (Path jar : paths.filter(VersionModSorterNeoForgeLocator::isOwnJar).collect(Collectors.toList())) {
+                context.addLocated(jar);
+            }
+        } catch (Throwable t) {
+            log(gameDir, "Failed to exclude Version Mod Sorter jars in " + dir + ":\n" + stackTrace(t));
+        }
+    }
+
+    private static boolean isOwnJar(Path path) {
+        if (!Files.isRegularFile(path) || !path.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".jar")) {
+            return false;
+        }
+        try (ZipFile zip = new ZipFile(path.toFile())) {
+            return zip.getEntry(OWN_CLASS_ENTRY) != null;
+        } catch (Exception e) {
+            return false;
         }
     }
 
