@@ -101,6 +101,10 @@ processResources {
 }
 
 jar {
+    // ファイル名を変えてもForge/NeoForgeでのモジュール名が変わらないようにする
+    manifest {
+        attributes 'Automatic-Module-Name': 'version.mod.sorter'
+    }
     from sourceSets.forge.output
     from sourceSets.neoforge.output
     from('LICENSE') {
