@@ -4,32 +4,37 @@ import net.neoforged.neoforgespi.ILaunchContext;
 import net.neoforged.neoforgespi.locating.IDiscoveryPipeline;
 import net.neoforged.neoforgespi.locating.IModFileCandidateLocator;
 
+import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.zip.ZipFile;
 
-/**
- * {@code mods/neoforge/<MCバージョン>/} と {@code mods/neoforge/} 直下を
- * NeoForge公式の {@link IModFileCandidateLocator} として探索に追加する
- *
- * <p>{@code mods/neoforge/} 直下のjarは全MCバージョン共通の共有MODとして扱う。
- * {@code IModFileCandidateLocator.forFolder} は直下のみを走査するため、共有MOD用の
- * ロケータをルートに対して1つだけ生成すれば、配下のバージョン別フォルダは巻き込まれない
- *
- * <p>探索前に読み込まれるよう {@code META-INF/services} で登録する
- *
- * <p>{@code ILaunchContext} のバージョン・ゲームディレクトリ取得メソッドはNeoForgeのバージョンで変わるため、
- * 新しい系のメソッドを試し、無ければ {@code FMLLoader}・{@code FMLPaths} へフォールバックする
- */
+// mods/ 配下のサブフォルダを NeoForge公式の IModFileCandidateLocator として探索に追加する
+//
+// 読み込むかどうかはパス上の各フォルダ名で決まる
+// IModFileCandidateLocator.forFolder は直下のみを走査するため、読み込むフォルダごとにロケータを生成する
+//
+// 探索前に読み込まれるよう META-INF/services で登録する
+//
+// ILaunchContext のバージョン・ゲームディレクトリ取得メソッドはNeoForgeのバージョンで変わるため、
+// 新しい系のメソッドを試し、無ければ FMLLoader・FMLPaths へフォールバックする
 public class VersionModSorterNeoForgeLocator implements IModFileCandidateLocator {
 
+    private static final String LOADER = "neoforge";
+    private static final String[] LOADERS = {"fabric", "forge", "neoforge"};
+    private static final String DISABLED_DIR = "Disabled.Mod";
     private static final String OWN_CLASS_ENTRY = "vms/neoforge/VersionModSorterNeoForgeLocator.class";
 
     // NeoForgeのmodsフォルダ走査より先に実行させる
@@ -50,26 +55,20 @@ public class VersionModSorterNeoForgeLocator implements IModFileCandidateLocator
                 return;
             }
 
-            Path modsDir = gameDir.resolve("mods").resolve("neoforge");
-            Path versionDir = modsDir.resolve(mcVersion);
-            // 新バージョンでもMODの置き場が用意されるようにする
-            Files.createDirectories(versionDir);
+            Path modsDir = gameDir.resolve("mods");
+            // 新バージョンでもMODの置き場と除外フォルダが用意されるようにする
+            Files.createDirectories(modsDir.resolve(DISABLED_DIR));
+            Files.createDirectories(modsDir.resolve(LOADER).resolve(DISABLED_DIR));
+            Files.createDirectories(modsDir.resolve(mcVersion).resolve(DISABLED_DIR));
+            Files.createDirectories(modsDir.resolve(LOADER).resolve(mcVersion).resolve(DISABLED_DIR));
 
             // NeoForgeが走査するパスと同じ形に揃える
-            markOwnJarsLocated(context, gameDir.resolve("mods").toAbsolutePath().normalize(), gameDir);
+            markOwnJarsLocated(context, modsDir.toAbsolutePath().normalize(), gameDir);
 
-            if (Files.isDirectory(modsDir)) {
-                markOwnJarsLocated(context, modsDir, gameDir);
-                IModFileCandidateLocator.forFolder(modsDir.toFile(), "version-mod-sorter/shared")
+            for (Path dir : modDirectories(modsDir, mcVersion, gameDir)) {
+                markOwnJarsLocated(context, dir, gameDir);
+                IModFileCandidateLocator.forFolder(dir.toFile(), locatorName(modsDir, dir))
                         .findCandidates(context, pipeline);
-            }
-
-            try (Stream<Path> paths = Files.walk(versionDir)) {
-                for (Path dir : paths.filter(Files::isDirectory).collect(Collectors.toList())) {
-                    markOwnJarsLocated(context, dir, gameDir);
-                    IModFileCandidateLocator.forFolder(dir.toFile(), locatorName(versionDir, dir))
-                            .findCandidates(context, pipeline);
-                }
             }
         } catch (Throwable t) {
             log(gameDir, "Failed to add mod folders:\n" + stackTrace(t));
@@ -122,10 +121,53 @@ public class VersionModSorterNeoForgeLocator implements IModFileCandidateLocator
         return "version-mod-sorter";
     }
 
-    private static String locatorName(Path root, Path dir) {
-        if (dir.equals(root)) {
-            return "version-mod-sorter";
+    // mods/ 直下はNeoForge本体が読むため含めない
+    private static List<Path> modDirectories(Path root, String mcVersion, Path gameDir) throws IOException {
+        List<Path> dirs = new ArrayList<>();
+        Files.walkFileTree(root, new SimpleFileVisitor<Path>() {
+            @Override
+            public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
+                if (dir.equals(root)) {
+                    return FileVisitResult.CONTINUE;
+                }
+                if (!isLoadableDir(dir.getFileName().toString(), mcVersion)) {
+                    return FileVisitResult.SKIP_SUBTREE;
+                }
+                dirs.add(dir);
+                return FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public FileVisitResult visitFileFailed(Path file, IOException exc) {
+                log(gameDir, "Failed to scan: " + file + " (" + exc + ")");
+                return FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public FileVisitResult postVisitDirectory(Path dir, IOException exc) {
+                if (exc != null) {
+                    log(gameDir, "Failed to scan folder: " + dir + " (" + exc + ")");
+                }
+                return FileVisitResult.CONTINUE;
+            }
+        });
+        return dirs;
+    }
+
+    // ローダー名のフォルダは起動中のローダー、`.` を含むフォルダは起動中のMCバージョンに一致するときだけ読む
+    private static boolean isLoadableDir(String name, String mcVersion) {
+        for (String loaderName : LOADERS) {
+            if (loaderName.equalsIgnoreCase(name)) {
+                return loaderName.equals(LOADER);
+            }
         }
+        if (name.indexOf('.') >= 0) {
+            return name.equals(mcVersion);
+        }
+        return true;
+    }
+
+    private static String locatorName(Path root, Path dir) {
         return "version-mod-sorter/" + root.relativize(dir).toString().replace('\\', '/');
     }
 

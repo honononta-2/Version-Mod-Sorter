@@ -7,40 +7,42 @@ import net.fabricmc.loader.api.ModContainer;
 
 import java.io.BufferedReader;
 import java.io.File;
+import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.lang.management.ManagementFactory;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
-import java.util.stream.Stream;
 
-/**
- * {@code mods/fabric/<MCバージョン>/} と {@code mods/fabric/} 直下のjarを
- * Fabric Loader公式の {@code fabric.addMods} 経由で読み込ませる
- *
- * <p>{@code mods/fabric/} 直下のjarは全MCバージョン共通の共有MODとして扱う。
- * {@code fabric.addMods} のディレクトリ渡しは深さ無制限で走査するため、
- * 共有MODはディレクトリではなく個別のjarとして列挙する
- *
- * <p>言語アダプタとして登録するのは、MOD探索より前に静的初期化を走らせるための手段で、
- * オブジェクト生成用途では使わない
- *
- * <p>{@code fabric.addMods} は探索段階で読まれるため、
- * 同一JVMでは間に合わず、値を仕込んだ子プロセスとして起動し直す
- */
+// mods/ 配下のサブフォルダにあるjarを Fabric Loader公式の fabric.addMods 経由で読み込ませる
+//
+// 読み込むかどうかはパス上の各フォルダ名で決まる
+// fabric.addMods のディレクトリ渡しは深さ無制限で走査し途中のフォルダを除外できないため、jarを個別に列挙する
+//
+// 言語アダプタとして登録するのは、MOD探索より前に静的初期化を走らせるための手段で、
+// オブジェクト生成用途では使わない
+//
+// fabric.addMods は探索段階で読まれるため、
+// 同一JVMでは間に合わず、値を仕込んだ子プロセスとして起動し直す
 @SuppressWarnings("unused")
 public class VersionModSorter implements LanguageAdapter {
+    private static final String LOADER = "fabric";
+    private static final String[] LOADERS = {"fabric", "forge", "neoforge"};
+    private static final String DISABLED_DIR = "Disabled.Mod";
     private static final String RELAUNCH_FLAG = "vms.relaunched";
     private static final String PARENT_PID_FLAG = "vms.parentPid";
     private static final String ADDMODS_FILE_FLAG = "vms.addModsFile";
@@ -72,16 +74,17 @@ public class VersionModSorter implements LanguageAdapter {
             return;
         }
 
-        Path modsDir = loader.getGameDir().resolve("mods").resolve("fabric");
-        Path versionDir = modsDir.resolve(mcVersion);
+        Path modsDir = loader.getGameDir().resolve("mods");
 
-        // 新バージョンでもMODの置き場が用意されるようにする
-        ensureDir(versionDir);
+        // 新バージョンでもMODの置き場と除外フォルダが用意されるようにする
+        ensureDir(modsDir.resolve(DISABLED_DIR));
+        ensureDir(modsDir.resolve(LOADER).resolve(DISABLED_DIR));
+        ensureDir(modsDir.resolve(mcVersion).resolve(DISABLED_DIR));
+        ensureDir(modsDir.resolve(LOADER).resolve(mcVersion).resolve(DISABLED_DIR));
 
         // 空フォルダのための無駄な再起動を避ける
         List<String> extraPaths = new ArrayList<>();
-        addIfHasMods(extraPaths, versionDir);
-        addSharedJars(extraPaths, modsDir);
+        addModJars(extraPaths, modsDir, mcVersion);
 
         if (extraPaths.isEmpty()) {
             return;
@@ -122,32 +125,59 @@ public class VersionModSorter implements LanguageAdapter {
         }
     }
 
-    private static void addIfHasMods(List<String> list, Path dir) {
-        if (!Files.isDirectory(dir)) {
+    // mods/ 直下のjarはローダー自身が読むため、サブフォルダ内のjarだけを集める
+    private static void addModJars(List<String> list, Path modsDir, String mcVersion) {
+        if (!Files.isDirectory(modsDir)) {
             return;
         }
-        try (Stream<Path> paths = Files.walk(dir)) {
-            boolean hasJar = paths.anyMatch(p -> Files.isRegularFile(p)
-                    && p.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".jar"));
-            if (hasJar) {
-                list.add(dir.toAbsolutePath().toString());
-            }
+        try {
+            Files.walkFileTree(modsDir, new SimpleFileVisitor<Path>() {
+                @Override
+                public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
+                    if (dir.equals(modsDir) || isLoadableDir(dir.getFileName().toString(), mcVersion)) {
+                        return FileVisitResult.CONTINUE;
+                    }
+                    return FileVisitResult.SKIP_SUBTREE;
+                }
+
+                @Override
+                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+                    if (!modsDir.equals(file.getParent()) && isJarFile(file)) {
+                        list.add(file.toAbsolutePath().toString());
+                    }
+                    return FileVisitResult.CONTINUE;
+                }
+
+                @Override
+                public FileVisitResult visitFileFailed(Path file, IOException exc) {
+                    log("Failed to scan: " + file + " (" + exc + ")");
+                    return FileVisitResult.CONTINUE;
+                }
+
+                @Override
+                public FileVisitResult postVisitDirectory(Path dir, IOException exc) {
+                    if (exc != null) {
+                        log("Failed to scan folder: " + dir + " (" + exc + ")");
+                    }
+                    return FileVisitResult.CONTINUE;
+                }
+            });
         } catch (Exception e) {
-            log("Failed to scan folder: " + dir + " (" + e + ")");
+            log("Failed to scan folder: " + modsDir + " (" + e + ")");
         }
     }
 
-    private static void addSharedJars(List<String> list, Path dir) {
-        if (!Files.isDirectory(dir)) {
-            return;
+    // ローダー名のフォルダは起動中のローダー、`.` を含むフォルダは起動中のMCバージョンに一致するときだけ読む
+    private static boolean isLoadableDir(String name, String mcVersion) {
+        for (String loaderName : LOADERS) {
+            if (loaderName.equalsIgnoreCase(name)) {
+                return loaderName.equals(LOADER);
+            }
         }
-        try (Stream<Path> paths = Files.list(dir)) {
-            paths.filter(Files::isRegularFile)
-                    .filter(p -> p.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".jar"))
-                    .forEach(p -> list.add(p.toAbsolutePath().toString()));
-        } catch (Exception e) {
-            log("Failed to scan folder: " + dir + " (" + e + ")");
+        if (name.indexOf('.') >= 0) {
+            return name.equals(mcVersion);
         }
+        return true;
     }
 
     private static void relaunch(FabricLoader loader, String mcVersion, List<String> extraPaths) throws Exception {
@@ -275,18 +305,7 @@ public class VersionModSorter implements LanguageAdapter {
             }
         }
         for (String pathStr : extraPaths) {
-            Path path = Paths.get(pathStr);
-            if (Files.isDirectory(path)) {
-                try (Stream<Path> paths = Files.walk(path)) {
-                    for (Path p : (Iterable<Path>) paths::iterator) {
-                        addJarEntry(mods, p);
-                    }
-                } catch (Exception e) {
-                    log("Failed to scan folder: " + path + " (" + e + ")");
-                }
-            } else {
-                addJarEntry(mods, path);
-            }
+            addJarEntry(mods, Paths.get(pathStr));
         }
         return mods;
     }

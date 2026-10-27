@@ -10,9 +10,12 @@ import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -24,21 +27,20 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.zip.ZipFile;
 
-/**
- * {@code mods/forge/<MCバージョン>/} と {@code mods/forge/} 直下を Forge公式の {@link IModLocator}
- * として探索に追加する
- *
- * <p>{@code mods/forge/} 直下のjarは全MCバージョン共通の共有MODとして扱う。
- * {@code IModDirectoryLocatorFactory.build} は直下のみを走査するため、共有MOD用の
- * ロケータをルートに対して1つだけ生成すれば、配下のバージョン別フォルダは巻き込まれない
- *
- * <p>探索前に読み込まれるよう {@code META-INF/services} で登録する
- *
- * <p>取得に使う {@code FMLLoader}・{@code FMLPaths}・modlauncherの {@code Launcher} はForge 26.xでは
- * Java 25向けで、JDK17ビルドから直接参照できないためリフレクションで呼ぶ
- */
+// mods/ 配下のサブフォルダを Forge公式の IModLocator として探索に追加する
+//
+// 読み込むかどうかはパス上の各フォルダ名で決まる
+// IModDirectoryLocatorFactory.build は直下のみを走査するため、読み込むフォルダごとにロケータを生成する
+//
+// 探索前に読み込まれるよう META-INF/services で登録する
+//
+// 取得に使う FMLLoader・FMLPaths・modlauncherの Launcher はForge 26.xでは
+// Java 25向けで、JDK17ビルドから直接参照できないためリフレクションで呼ぶ
 public class VersionModSorterForgeLocator implements IModLocator {
 
+    private static final String LOADER = "forge";
+    private static final String[] LOADERS = {"fabric", "forge", "neoforge"};
+    private static final String DISABLED_DIR = "Disabled.Mod";
     private static final String OWN_CLASS_ENTRY = "vms/forge/VersionModSorterForgeLocator.class";
 
     @Override
@@ -52,10 +54,12 @@ public class VersionModSorterForgeLocator implements IModLocator {
                 return Collections.emptyList();
             }
 
-            Path modsDir = gameDir.resolve("mods").resolve("forge");
-            Path versionDir = modsDir.resolve(mcVersion);
-            // 新バージョンでもMODの置き場が用意されるようにする
-            Files.createDirectories(versionDir);
+            Path modsDir = gameDir.resolve("mods");
+            // 新バージョンでもMODの置き場と除外フォルダが用意されるようにする
+            Files.createDirectories(modsDir.resolve(DISABLED_DIR));
+            Files.createDirectories(modsDir.resolve(LOADER).resolve(DISABLED_DIR));
+            Files.createDirectories(modsDir.resolve(mcVersion).resolve(DISABLED_DIR));
+            Files.createDirectories(modsDir.resolve(LOADER).resolve(mcVersion).resolve(DISABLED_DIR));
 
             IModDirectoryLocatorFactory factory = directoryLocatorFactory();
             if (factory == null) {
@@ -64,11 +68,8 @@ public class VersionModSorterForgeLocator implements IModLocator {
             }
 
             List<ModFileOrException> result = new ArrayList<>();
-            if (Files.isDirectory(modsDir)) {
-                result.addAll(scanWithoutOwnJars(factory, modsDir, name() + "/shared"));
-            }
-            for (Path dir : modDirectories(versionDir)) {
-                result.addAll(scanWithoutOwnJars(factory, dir, locatorName(versionDir, dir)));
+            for (Path dir : modDirectories(modsDir, mcVersion, gameDir)) {
+                result.addAll(scanWithoutOwnJars(factory, dir, locatorName(modsDir, dir)));
             }
             return result;
         } catch (Throwable t) {
@@ -132,16 +133,53 @@ public class VersionModSorterForgeLocator implements IModLocator {
         }
     }
 
-    private static List<Path> modDirectories(Path root) throws IOException {
-        try (Stream<Path> paths = Files.walk(root)) {
-            return paths.filter(Files::isDirectory).collect(Collectors.toList());
+    // mods/ 直下はForge本体が読むため含めない
+    private static List<Path> modDirectories(Path root, String mcVersion, Path gameDir) throws IOException {
+        List<Path> dirs = new ArrayList<>();
+        Files.walkFileTree(root, new SimpleFileVisitor<Path>() {
+            @Override
+            public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
+                if (dir.equals(root)) {
+                    return FileVisitResult.CONTINUE;
+                }
+                if (!isLoadableDir(dir.getFileName().toString(), mcVersion)) {
+                    return FileVisitResult.SKIP_SUBTREE;
+                }
+                dirs.add(dir);
+                return FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public FileVisitResult visitFileFailed(Path file, IOException exc) {
+                log(gameDir, "Failed to scan: " + file + " (" + exc + ")");
+                return FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public FileVisitResult postVisitDirectory(Path dir, IOException exc) {
+                if (exc != null) {
+                    log(gameDir, "Failed to scan folder: " + dir + " (" + exc + ")");
+                }
+                return FileVisitResult.CONTINUE;
+            }
+        });
+        return dirs;
+    }
+
+    // ローダー名のフォルダは起動中のローダー、`.` を含むフォルダは起動中のMCバージョンに一致するときだけ読む
+    private static boolean isLoadableDir(String name, String mcVersion) {
+        for (String loaderName : LOADERS) {
+            if (loaderName.equalsIgnoreCase(name)) {
+                return loaderName.equals(LOADER);
+            }
         }
+        if (name.indexOf('.') >= 0) {
+            return name.equals(mcVersion);
+        }
+        return true;
     }
 
     private String locatorName(Path root, Path dir) {
-        if (dir.equals(root)) {
-            return name();
-        }
         return name() + "/" + root.relativize(dir).toString().replace('\\', '/');
     }
 
